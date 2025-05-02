@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Openverse Media Search</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    #results img { max-width: 200px; margin: 10px; }
+    .media-item { display: inline-block; vertical-align: top; margin: 10px; }
+    .audio { width: 300px; }
+    #error-message { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <h2>Login</h2>
+  <input id="username" placeholder="Username">
+  <input id="password" placeholder="Password" type="password">
+  <button onclick="login()">Login</button>
+  <button onclick="saveSearch()">Save Search</button>
+  <span id="save-status"></span>
+
+  <p id="token-status"></p>
+
+  <h2>Search Media</h2>
+  <input id="query" placeholder="Search term">
+  <select id="type">
+    <option value="image">Image</option>
+    <option value="audio">Audio</option>
+  </select>
+  <button onclick="searchMedia()">Search</button>
+
+  <p id="error-message"></p> <!-- For displaying error messages -->
+
+  <h3>Results:</h3>
+  <div id="results"></div>
+
+  <h3>My Recent Searches:</h3>
+  <button onclick="loadRecentSearches()">Load My Searches</button>
+  <div id="recent-searches"></div>
+
+<script>
+
+let token = null;
+
+async function loadRecentSearches() {
+  if (!token) {
+    alert("Please log in to view your searches.");
+    return;
+  }
+
+  const res = await fetch("/searches/", {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    displayRecentSearches(data);
+  } else {
+    displayError("Failed to load recent searches.");
+  }
+}
+
+function displayRecentSearches(searches) {
+  const container = document.getElementById("recent-searches");
+  container.innerHTML = "";
+
+  if (searches.length === 0) {
+    container.innerText = "No saved searches.";
+    return;
+  }
+
+  searches.forEach(search => {
+    const div = document.createElement("div");
+    div.className = "recent-search";
+    div.innerHTML = ` 
+      <span>${search.query} (${new Date(search.timestamp).toLocaleString()})</span>
+      <button onclick="deleteSearch(${search.id})">Delete</button>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function deleteSearch(searchId) {
+  const res = await fetch(`/searches/${searchId}`, {
+    method: "DELETE",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+
+  if (res.ok) {
+    loadRecentSearches();
+  } else {
+    alert("Failed to delete search.");
+  }
+}
+
+async function saveSearch() {
+  const q = document.getElementById("query").value;
+  const status = document.getElementById("save-status");
+
+  if (!token) {
+    status.innerText = "❌ Not logged in";
+    return;
+  }
+
+  const res = await fetch("/searches/", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ query: q })
+  });
+
+  if (res.ok) {
+    status.innerText = "✅ Search saved";
+  } else {
+    status.innerText = "❌ Save failed";
+  }
+}
+
+async function login() {
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+
+  const formData = new URLSearchParams();
+  formData.append("username", username);
+  formData.append("password", password);
+
+  const res = await fetch("/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: formData
+  });
+
+  const data = await res.json();
+  token = data.access_token;
+  document.getElementById("token-status").innerText = token ? "Logged in ✅" : "Login failed ❌";
+}
+
+async function searchMedia() {
+  const q = document.getElementById("query").value;
+  const type = document.getElementById("type").value;
+  const errorMessage = document.getElementById("error-message");
+  
+  errorMessage.innerText = ""; // Reset error message
+
+  if (!q) {
+    errorMessage.innerText = "Please enter a search term.";
+    return;
+  }
+
+  const res = await fetch(`/media/search?q=${encodeURIComponent(q)}&type=${type}`, {
+    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+  });
+
+  if (!res.ok) {
+    errorMessage.innerText = "Failed to fetch media.";
+    return;
+  }
+
+  const data = await res.json();
+  displayResults(data.results || []);
+}
+
+function displayResults(items) {
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+
+  if (items.length === 0) {
+    container.innerHTML = "<p>No results found.</p>";
+    return;
+  }
+
+  items.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "media-item";
+
+    if (item.thumbnail) {
+      const img = document.createElement("img");
+      img.src = item.thumbnail;
+      div.appendChild(img);
+    } else if (item.audio_url || item.url) {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = item.audio_url || item.url;
+      audio.className = "audio";
+      div.appendChild(audio);
+    }
+
+    const title = document.createElement("p");
+    title.textContent = item.title;
+    div.appendChild(title);
+
+    container.appendChild(div);
+  });
+}
+
+function displayError(message) {
+  const errorMessage = document.getElementById("error-message");
+  errorMessage.innerText = message;
+}
+</script>
+
+</body>
+</html>
